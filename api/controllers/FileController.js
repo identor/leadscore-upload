@@ -10,60 +10,86 @@ var MongoClient = require('mongodb').MongoClient;
 var checksum = require('checksum');
 
 function upload(req, res) {
-  req.file('csv').upload({
-    dirname: '../../assets/csv',
-    maxBytes: 1000000000
-  }, function (err, uploadedCsv) {
+  var filename, fileDate;
+  var extractDate = function (filename) {
+    var yearString = filename.slice(23, 27);
+    var monthString = filename.slice(27, 29);
+    var dayString = filename.slice(29, 31);
+    return new Date(yearString + '-' + monthString + '-' + dayString);
+  };
+  var createFileRecord = function (db, fileDetails) {
+    db.collection('fileprocessed').insert(fileDetails, function (err, data) {
+      if (err) {
+        return res.badRequest('File was already uploaded. <a href="/">back?</a>');
+      }
+      console.log("Created fileprocessed record for: " + fileDetails._id);
+    })
+  };
+  var createLeadscoreRecords = function (err, db, uploadedCsv, fileDetails) {
+    if (err) throw err;
+    csv.fromPath(uploadedCsv[0].fd, {headers: true})
+      .on('data', function (data) {
+        var scorer = data['Scorer'];
+        var branch = '';
+        if (scorer.indexOf('ARPI5') != -1) {
+            branch = 'Dagupan';
+        } else if (scorer.indexOf('ARS') != -1){
+            branch = 'Others';
+        } else {
+            branch = 'Baguio';
+        }
+        var score = {
+          fileDate: fileDate,
+          callStartTime: data['Call Start Time'],
+          processingStart: data['Processing Start'],
+          processingEnd: data['Processing End'],
+          processingTime: data['Processing Time(Sec)'],
+          industry: data['Industry'],
+          branch: branch,
+          scorer: scorer,
+          accountName: data['Account Name'],
+          customerName: data['Customer Name'],
+          callId: data['Call ID'],
+          callType: data['Call Type'],
+          callStatus: data['Call Status'],
+          callDuration: data['Call Duration'],
+          url: data['Audio URL']
+        };
+        db.collection('score').insert(score, function (err, scores) {
+          if (err) throw err;
+        })
+      })
+      .on('end', function () {
+        return res.json({
+          message: 'Successfully uploaded...',
+          file: fileDetails
+        });
+      });
+  };
+  var processCsv = function (err, uploadedCsv) {
     if (err) throw err;
     if (uploadedCsv.length === 0) {
       return res.badRequest('No file was uploaded. <a href="/">back?</a>');
     }
-    MongoClient.connect('mongodb://localhost:27017/Leadscore', function (err, db) {
-      if (err) throw err;
-      csv.fromPath(uploadedCsv[0].fd, {headers: true})
-        .on('data', function (data) {
-          var scorer = data['Scorer'];
-          var branch = '';
-          if (scorer.indexOf('ARPI5') != -1) {
-              branch = 'Dagupan';
-          } else if (scorer.indexOf('ARS') != -1){
-              branch = 'Others';
-          } else {
-              branch = 'Baguio';
-          }
-          var filename = uploadedCsv[0].filename;
-          var yearString = filename.slice(23, 27);
-          var monthString = filename.slice(27, 29);
-          var dayString = filename.slice(29, 31);
-          var fileDate = new Date(yearString + '-' + monthString + '-' + dayString);
-          var score = {
-            fileDate: fileDate,
-            callStartTime: data['Call Start Time'],
-            processingStart: data['Processing Start'],
-            processingEnd: data['Processing End'],
-            processingTime: data['Processing Time(Sec)'],
-            industry: data['Industry'],
-            branch: branch,
-            scorer: scorer,
-            accountName: data['Account Name'],
-            customerName: data['Customer Name'],
-            callId: data['Call ID'],
-            callType: data['Call Type'],
-            callStatus: data['Call Status'],
-            callDuration: data['Call Duration'],
-            url: data['Audio URL']
-          };
-          db.collection('score').insert(score, function (err, scores) {
-            if (err) throw err;
-          })
-        })
-        .on('end', function () {
-          return res.json({
-            message: 'File successfully uploaded...'
-          });
-        });
+    filename = uploadedCsv[0].filename;
+    fileDate = extractDate(filename);
+    checksum.file(uploadedCsv[0].fd, function (err, fileChecksum) {
+      var fileDetails = {
+        _id: fileChecksum,
+        filename: filename,
+        date: fileDate
+      };
+      MongoClient.connect('mongodb://localhost:27017/Leadscore', function (err, db) {
+        createLeadscoreRecords(err, db, uploadedCsv, fileDetails);
+        createFileRecord(db, fileDetails);
+      });
     });
-  })
+  };
+  var uploadOpts = {
+    dirname: '../../assets/csv',
+    maxBytes: 1000000000
+  };
+  req.file('csv').upload(uploadOpts, processCsv);
 }
 
 function retrieve(req, res) {
