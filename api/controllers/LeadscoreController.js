@@ -18,7 +18,19 @@ function branches(req, res) {
   });
 }
 
+function industries(req, res) {
+  MongoClient.connect('mongodb://localhost:27017/Leadscore', function (err, db) {
+    if (err) throw err;
+    var leadscore = db.collection('leadscore');
+    leadscore.distinct('industry', function (err, data) {
+      if (err) throw err;
+      res.json(data);
+    })
+  });
+}
+
 module.exports = {
-  branches: branches
+  branches: branches,
+  industries: industries
 };
 
