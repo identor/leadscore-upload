@@ -5,6 +5,7 @@
   "description": "a Sails application",
   "keywords": [],
   "dependencies": {
+    "checksum": "^0.1.1",
     "ejs": "~0.8.4",
     "fast-csv": "^0.5.5",
     "grunt": "0.4.2",

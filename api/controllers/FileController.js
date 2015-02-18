@@ -7,16 +7,19 @@
 
 var csv = require('fast-csv');
 var MongoClient = require('mongodb').MongoClient;
+var checksum = require('checksum');
 
 function upload(req, res) {
   req.file('csv').upload({
     dirname: '../../assets/csv',
-    maxBytes: 100000000
+    maxBytes: 1000000000
   }, function (err, uploadedCsv) {
     if (err) throw err;
+    if (uploadedCsv.length === 0) {
+      return res.badRequest('No file was uploaded. <a href="/">back?</a>');
+    }
     MongoClient.connect('mongodb://localhost:27017/Leadscore', function (err, db) {
       if (err) throw err;
-
       csv.fromPath(uploadedCsv[0].fd, {headers: true})
         .on('data', function (data) {
           var scorer = data['Scorer'];
@@ -52,26 +55,36 @@ function upload(req, res) {
           };
           db.collection('score').insert(score, function (err, scores) {
             if (err) throw err;
-            console.log('Score inserted as ' + scores[0].callId);
-            return res.json({
-              message:'Successfully inserted.'
-            });
+          })
+        })
+        .on('end', function () {
+          return res.json({
+            message: 'File successfully uploaded...'
           });
         });
     });
-  });
+  })
 }
 
 function retrieve(req, res) {
   MongoClient.connect('mongodb://localhost:27017/Leadscore', function(err, db) {
       if (err) throw err;
       if (!err) {
-          console.log('Connected to the database successfully');
+        console.log('Connected to the database successfully');
       }
       var collection = db.collection('score');
       var scorer = [];
-      var compileScores = function(index, docs) {
-        collection.find({scorer: docs[index]}).toArray(function (err, data) {
+      var processed = 0;
+      var compileScores = function(scorer, date, queueSize) {
+        console.log(scorer, date);
+        collection.find({scorer: scorer, fileDate: date}).toArray(function (err, data) {
+          // check if scorer name is valid (minimal)
+          // add regex if possible
+          if (!scorer) {
+            ++processed;
+            console.error('Data, null user name. ');
+            return;
+          }
           var totalProcessingTime = 0;
           var totalCallDuration = 0;
           var averageProcessingTime = 0;
@@ -83,7 +96,7 @@ function retrieve(req, res) {
           averageProcessingTime = totalCallDuration / data.length;
           averageCallDuration = totalProcessingTime / data.length;
           var leadscore = {
-            scorer: docs[index],
+            scorer: scorer,
             totalProcessingTime: totalProcessingTime,
             totalCallDuration: totalCallDuration,
             averageCallDuration: averageCallDuration,
@@ -94,14 +107,30 @@ function retrieve(req, res) {
             date: data[0].fileDate,
           };
           db.collection('leadscore').insert(leadscore, function (err, leadscore) {
+            ++processed;
             if (err) throw err;
-            console.log(leadscore);
+            if (processed === queueSize) {
+              console.log('finished');
+              return res.json({
+                message: 'Successful processing... added ' + processed + ' records.'
+              });
+            }
           });
         });
       };
-      collection.distinct('scorer', function(err, docs) {
-        for (var i = 0; i < docs.length; i++) {
-            compileScores(i, docs);
+      var insertPerDistinctDatesOf = function(scorer, scorersCount) {
+        collection.distinct('fileDate', {scorer: scorer}, function(err, dates) {
+          if (err) throw err;
+          for (var j = 0; j < dates.length; j++) {
+            compileScores(scorer, dates[j], scorersCount*dates.length);
+          }
+        });
+      };
+      collection.distinct('scorer', function(err, scorers) {
+        if (err) throw err;
+        for (var i = 0; i < scorers.length; i++) {
+          var scorer = scorers[i];
+          insertPerDistinctDatesOf(scorer, scorers.length);
         }
       });
   });
