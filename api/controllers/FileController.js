@@ -68,71 +68,71 @@ function upload(req, res) {
 
 function retrieve(req, res) {
   MongoClient.connect('mongodb://localhost:27017/Leadscore', function(err, db) {
-      if (err) throw err;
-      if (!err) {
-        console.log('Connected to the database successfully');
-      }
-      var collection = db.collection('score');
-      var scorer = [];
-      var processed = 0;
-      var compileScores = function(scorer, date, queueSize) {
-        console.log(scorer, date);
-        collection.find({scorer: scorer, fileDate: date}).toArray(function (err, data) {
-          // check if scorer name is valid (minimal)
-          // add regex if possible
-          if (!scorer) {
-            ++processed;
-            console.error('Data, null user name. ');
-            return;
-          }
-          var totalProcessingTime = 0;
-          var totalCallDuration = 0;
-          var averageProcessingTime = 0;
-          var averageCallDuration = 0;
-          for (var j = 0; j < data.length; j++) {
-            totalProcessingTime += +data[j].processingTime;
-            totalCallDuration += +data[j].callDuration;
-          }
-          averageProcessingTime = totalCallDuration / data.length;
-          averageCallDuration = totalProcessingTime / data.length;
-          var leadscore = {
-            scorer: scorer,
-            totalProcessingTime: totalProcessingTime,
-            totalCallDuration: totalCallDuration,
-            averageCallDuration: averageCallDuration,
-            averageProcessingTime: averageProcessingTime,
-            branch: data[0].branch,
-            industry: data[0].industry,
-            callCount: data.length,
-            date: data[0].fileDate,
-          };
-          db.collection('leadscore').insert(leadscore, function (err, leadscore) {
-            ++processed;
-            if (err) throw err;
-            if (processed === queueSize) {
-              console.log('finished');
-              return res.json({
-                message: 'Successful processing... added ' + processed + ' records.'
-              });
-            }
-          });
-        });
-      };
-      var insertPerDistinctDatesOf = function(scorer, scorersCount) {
-        collection.distinct('fileDate', {scorer: scorer}, function(err, dates) {
+    if (err) throw err;
+    if (!err) {
+      console.log('Connected to the database successfully');
+    }
+    var collection = db.collection('score');
+    var scorer = [];
+    var processed = 0;
+    var compileScores = function(scorer, date, queueSize) {
+      console.log(scorer, date);
+      collection.find({scorer: scorer, fileDate: date}).toArray(function (err, data) {
+        // check if scorer name is valid (minimal)
+        // add regex if possible
+        if (!scorer) {
+          ++processed;
+          console.error('Data, null user name. ');
+          return;
+        }
+        var totalProcessingTime = 0;
+        var totalCallDuration = 0;
+        var averageProcessingTime = 0;
+        var averageCallDuration = 0;
+        for (var j = 0; j < data.length; j++) {
+          totalProcessingTime += +data[j].processingTime;
+          totalCallDuration += +data[j].callDuration;
+        }
+        averageProcessingTime = totalCallDuration / data.length;
+        averageCallDuration = totalProcessingTime / data.length;
+        var leadscore = {
+          scorer: scorer,
+          totalProcessingTime: totalProcessingTime,
+          totalCallDuration: totalCallDuration,
+          averageCallDuration: averageCallDuration,
+          averageProcessingTime: averageProcessingTime,
+          branch: data[0].branch,
+          industry: data[0].industry,
+          callCount: data.length,
+          date: data[0].fileDate,
+        };
+        db.collection('leadscore').insert(leadscore, function (err, leadscore) {
+          ++processed;
           if (err) throw err;
-          for (var j = 0; j < dates.length; j++) {
-            compileScores(scorer, dates[j], scorersCount*dates.length);
+          if (processed === queueSize) {
+            console.log('finished');
+            return res.json({
+              message: 'Successful processing... added ' + processed + ' records.'
+            });
           }
         });
-      };
-      collection.distinct('scorer', function(err, scorers) {
+      });
+    };
+    var insertPerDistinctDatesOf = function(scorer, scorersCount) {
+      collection.distinct('fileDate', {scorer: scorer}, function(err, dates) {
         if (err) throw err;
-        for (var i = 0; i < scorers.length; i++) {
-          var scorer = scorers[i];
-          insertPerDistinctDatesOf(scorer, scorers.length);
+        for (var j = 0; j < dates.length; j++) {
+          compileScores(scorer, dates[j], scorersCount*dates.length);
         }
       });
+    };
+    collection.distinct('scorer', function(err, scorers) {
+      if (err) throw err;
+      for (var i = 0; i < scorers.length; i++) {
+        var scorer = scorers[i];
+        insertPerDistinctDatesOf(scorer, scorers.length);
+      }
+    });
   });
 }
 
