@@ -12,9 +12,11 @@ var checksum = require('checksum');
 function upload(req, res) {
   var filename, fileDate;
   var extractDate = function (filename) {
-    var yearString = filename.slice(23, 27);
-    var monthString = filename.slice(27, 29);
-    var dayString = filename.slice(29, 31);
+    var len = filename.length;
+    var yearString = filename.substring(len-8, len-12);
+    var monthString = filename.substring(len-6, len-8);
+    var dayString = filename.substring(len-4, len-6);
+    console.log(dayString, monthString, yearString);
     return new Date(yearString + '-' + monthString + '-' + dayString);
   };
   var createFileRecord = function (db, fileDetails) {
@@ -27,7 +29,7 @@ function upload(req, res) {
   };
   var createLeadscoreRecords = function (err, db, uploadedCsv, fileDetails) {
     if (err) throw err;
-    csv.fromPath(uploadedCsv[0].fd, {headers: true})
+    csv.fromPath(uploadedCsv[0].fd, {headers: true, ignoreEmpty: true})
       .on('data', function (data) {
         var scorer = data['Scorer'];
         var branch = '';
@@ -40,26 +42,30 @@ function upload(req, res) {
         }
         var score = {
           fileDate: fileDate,
-          callStartTime: data['Call Start Time'],
-          processingStart: data['Processing Start'],
-          processingEnd: data['Processing End'],
-          processingTime: data['Processing Time(Sec)'],
+          callStartTime: new Date(data['Call Start Time']),
+          processingStart: new Date(data['Processing Start']),
+          processingEnd: new Date(data['Processing End']),
+          processingTime: +data['Processing Time(Sec)'],
           industry: data['Industry'],
           branch: branch,
           scorer: scorer,
           accountName: data['Account Name'],
           customerName: data['Customer Name'],
-          callId: data['Call ID'],
+          _id: +data['Call ID'],
           callType: data['Call Type'],
           callStatus: data['Call Status'],
-          callDuration: data['Call Duration'],
+          callDuration: +data['Call Duration'],
           url: data['Audio URL']
         };
         db.collection('score').insert(score, function (err, scores) {
-          if (err) throw err;
+          if (err) {
+            console.log(err);
+            return;
+          }
         })
       })
       .on('end', function () {
+        console.log('Successfully uploaded...', fileDetails);
         return res.json({
           message: 'Successfully uploaded...',
           file: fileDetails
@@ -98,19 +104,21 @@ function retrieve(req, res) {
     if (!err) {
       console.log('Connected to the database successfully');
     }
+    var processed = 0;
     var collection = db.collection('score');
     var scorer = [];
-    var processed = 0;
     var compileScores = function(scorer, date, queueSize) {
-      console.log(scorer, date);
       collection.find({scorer: scorer, fileDate: date}).toArray(function (err, data) {
         // check if scorer name is valid (minimal)
         // add regex if possible
         if (!scorer) {
-          ++processed;
           console.error('Data, null user name. ');
           return;
         }
+        if (!data) {
+          console.error('Null data encountered. ', scorer);
+          return;
+        };
         var totalProcessingTime = 0;
         var totalCallDuration = 0;
         var averageProcessingTime = 0;
@@ -134,7 +142,12 @@ function retrieve(req, res) {
         };
         db.collection('leadscore').insert(leadscore, function (err, leadscore) {
           ++processed;
-          if (err) throw err;
+          if (err) {
+            console.log(err);
+            res.badRequest(err);
+            return;
+          }
+          console.log('Inserted a data set: ', processed);
           if (processed === queueSize) {
             console.log('finished');
             return res.json({
@@ -146,6 +159,7 @@ function retrieve(req, res) {
     };
     var insertPerDistinctDatesOf = function(scorer, scorersCount) {
       collection.distinct('fileDate', {scorer: scorer}, function(err, dates) {
+        console.log('Dates found...', dates.length);
         if (err) throw err;
         for (var j = 0; j < dates.length; j++) {
           compileScores(scorer, dates[j], scorersCount*dates.length);
@@ -153,6 +167,7 @@ function retrieve(req, res) {
       });
     };
     collection.distinct('scorer', function(err, scorers) {
+      console.log('Scorers found...', scorers.length);
       if (err) throw err;
       for (var i = 0; i < scorers.length; i++) {
         var scorer = scorers[i];
