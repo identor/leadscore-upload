@@ -31,8 +31,17 @@ function industries(req, res) {
 
 function clear(req, res) {
   MongoClient.connect('mongodb://localhost:27017/Leadscore', function (err, db) {
-    db.dropDatabase(function () {
-      res.json({ message: "Successfully cleared database..." });
+    db.collection('leadscore').drop(function (err) {
+      if (err) {
+        console.log(err);
+        return;
+      }
+      var message = {
+        message: 'Successfully dropped the `leadscore` database.'
+      };
+      console.log(message);
+      res.json(message);
+      db.close();
     });
   });
 }
