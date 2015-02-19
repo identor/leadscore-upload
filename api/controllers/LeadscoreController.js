@@ -29,8 +29,17 @@ function industries(req, res) {
   });
 }
 
+function clear(req, res) {
+  MongoClient.connect('mongodb://localhost:27017/Leadscore', function (err, db) {
+    db.dropDatabase(function () {
+      res.json({ message: "Successfully cleared database..." });
+    });
+  });
+}
+
 module.exports = {
   branches: branches,
-  industries: industries
+  industries: industries,
+  clear: clear
 };
 
