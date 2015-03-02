@@ -8,8 +8,23 @@
 var csv = require('fast-csv');
 var MongoClient = require('mongodb').MongoClient;
 var checksum = require('checksum');
+var DbUtils = require('lscp-processor').DbUtils;
 
 function upload(req, res) {
+  var formatting = [
+    { name: 'processingStart', type: 'Date', zone: '+0000' },
+    { name: 'processingEnd', type: 'Date', zone: '+0000' },
+    { name: 'callStartTime', type: 'Date', zone: '+0000' },
+    { name: 'elsProcessingStart', type: 'Date', zone: '+0000' },
+    { name: 'elsProcessingEnd', type: 'Date', zone: '+0000' },
+    { name: 'elsProcessingEnd', type: 'Date', zone: '+0000' },
+    { name: 'processingTimeSec', type: 'Number' },
+    { name: 'elsProcessingTimeSec', type: 'Number' },
+    { name: 'accountId', type: 'Number' },
+    { name: 'index', type: 'Number' },
+    { name: 'callDuration', type: 'Number' },
+    { name: '_id', type: 'Number' },
+  ];
   var filename, fileDate;
   var extractDate = function (filename) {
     var len = filename.length;
@@ -28,49 +43,16 @@ function upload(req, res) {
     })
   };
   var createLeadscoreRecords = function (err, db, uploadedCsv, fileDetails) {
-    if (err) throw err;
-    csv.fromPath(uploadedCsv[0].fd, {headers: true, ignoreEmpty: true})
-      .on('data', function (data) {
-        var scorer = data['Scorer'];
-        var branch = '';
-        if (scorer.indexOf('ARPI5') != -1) {
-            branch = 'Dagupan';
-        } else if (scorer.indexOf('ARS') != -1){
-            branch = 'Others';
-        } else {
-            branch = 'Baguio';
-        }
-        var score = {
-          fileDate: fileDate,
-          callStartTime: new Date(data['Call Start Time']),
-          processingStart: new Date(data['Processing Start']),
-          processingEnd: new Date(data['Processing End']),
-          processingTime: +data['Processing Time(Sec)'],
-          industry: data['Industry'],
-          branch: branch,
-          scorer: scorer,
-          accountName: data['Account Name'],
-          customerName: data['Customer Name'],
-          _id: +data['Call ID'],
-          callType: data['Call Type'],
-          callStatus: data['Call Status'],
-          callDuration: +data['Call Duration'],
-          url: data['Audio URL']
-        };
-        db.collection('score').insert(score, function (err, scores) {
-          if (err) {
-            console.log(err);
-            return;
-          }
-        })
-      })
-      .on('end', function () {
-        console.log('Successfully uploaded...', fileDetails);
-        return res.json({
-          message: 'Successfully uploaded...',
-          file: fileDetails
-        });
+    var index = 0;
+    var fileUploaded = function () {
+      return res.json({
+        message: 'File uploaded successfully!',
+        fileDetails: fileDetails,
+        uploadedCsv: uploadedCsv
       });
+    };
+    var scores = db.collection('scores');
+    DbUtils.saveToDb(uploadedCsv[index].fd, scores, formatting, fileUploaded);
   };
   var processCsv = function (err, uploadedCsv) {
     if (err) throw err;
@@ -105,7 +87,7 @@ function retrieve(req, res) {
       console.log('Connected to the database successfully');
     }
     var processed = 0;
-    var collection = db.collection('score');
+    var collection = db.collection('scores');
     var scorer = [];
     var compileScores = function(scorer, date, queueSize) {
       collection.find({scorer: scorer, fileDate: date}).toArray(function (err, data) {

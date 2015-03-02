@@ -6,6 +6,7 @@
  */
 
 var MongoClient = require('mongodb').MongoClient;
+var DbUtils = require('lscp-processor').DbUtils;
 
 function productivity(req, res) {
   var logError = function (err) {
@@ -19,50 +20,16 @@ function productivity(req, res) {
     }
   };
   var sendResponse = function(scorerProductivity) {
-    res.json(scorerProductivity);
+    return res.json(scorerProductivity);
   };
   var connected = function (err, db) {
-    if (err) sendErrorResponse (err);
-    var scores = db.collection('score');
-    var processAggregatedScores = function (err, data) {
-      if (err) sendErrorResponse (err);
-      var scorerDataSet = [];
-      for (var i = 0; i < data.length; i++) {
-        var scorer = data[i]._id.scorer;
-        var date = data[i]._id.date;
-        var industry = data[i]._id.date;
-        var scorerProductivity = {
-          scorer: data[i]._id.scorer,
-          date: data[i]._id.date,
-          industry: data[i]._id.industry,
-          branch: data[i].branch[0], // we dont want an array
-          totalCallDuration: data[i].totalCallDuration,
-          totalProcessingTime: data[i].totalProcessingTime,
-          averageCallDuration: data[i].averageCallDuration,
-          averageProcessingTime: data[i].averageProcessingTime,
-          callCount: data[i].callCount
-        };
-        scorerDataSet.push(scorerProductivity);
-      }
-      sendResponse(scorerDataSet);
-    };
-    var aggregateGroup = {
-      _id: {
-        scorer: '$scorer',
-        date: '$fileDate',
-        industry: '$industry'
-      },
-      branch: { $addToSet: '$branch' },
-      totalCallDuration: { $sum: '$callDuration' },
-      totalProcessingTime: { $sum: '$processingTime' },
-      averageCallDuration: { $avg: '$callDuration' },
-      averageProcessingTime: { $avg: '$processingTime' },
-      callCount: { $sum: 1 }
-    };
-    var aggregateOpts = [{
-      $group: aggregateGroup
-    }]
-    scores.aggregate(aggregateOpts, processAggregatedScores);
+    if (err) sendErrorResponse(err);
+    var scores = db.collection('scores');
+    if (req.query && req.query.scorer) {
+      DbUtils.queries.scorerCallsProcessed(scores, req.query.scorer, sendResponse);
+    } else {
+      DbUtils.queries.callsProcessed(scores, sendResponse);
+    }
   };
   MongoClient.connect('mongodb://localhost:27017/Leadscore', connected);
 }
@@ -87,7 +54,7 @@ function stats(req, res) {
   };
   var connected = function (err, db) {
     if (err) sendErrorResponse (err);
-    var scores = db.collection('score');
+    var scores = db.collection('scores');
     var aggregateGroup = {
       _id: null,
       scorers: { $addToSet: '$scorer' },
